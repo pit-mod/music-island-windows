@@ -1,0 +1,8 @@
+/build/
+/dist/
+/verification/
+/.vs/
+/build-native.log
+*.obj
+*.pdb
+*.ilk
