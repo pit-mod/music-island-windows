@@ -151,15 +151,51 @@ int main(){
         require(!playback.value(20.03,false,L"browser",L"song"),"a different player must discard stale local playback feedback");
         playback.request(true,30,L"spotify",L"song");require(!playback.value(30.01,false,L"spotify",L"new song"),"a different song must use its own playback state");
         playback.request(false,40,L"spotify",L"song");require(!playback.value(40.6,false,L"spotify",L"song")&&playback.value(40.7,true,L"spotify",L"song"),"confirmed feedback should follow later external playback changes");
-        PeakHistory history;
-        for(int i=0;i<32;i++)history.append(.25f,true);
-        auto peaks=history.display();for(float peak:peaks)require(std::abs(peak-.328f)<.000001f,"relative dynamics must match the original mod's mastered-music normalization");
+        require(std::abs(gainFromDecibels(-20)-.1f)<.000001f&&std::abs(gainFromDecibels(-6)-.501187f)<.000001f,"endpoint decibels must convert to physical amplitude rather than Windows slider percentage");
+        require(gainFromDecibels(0)==1&&gainFromDecibels(-17,true)==0&&gainFromDecibels(NAN)==0,"full output, mute and invalid endpoint readings must have explicit gains");
+        require(std::abs(audibleSessionGain(-20,.5f)-.05f)<.000001f,"the player's linear session volume must multiply the endpoint's physical gain");
+        require(audibleSessionGain(-17,0)==0&&audibleSessionGain(-17,.5f,true)==0&&audibleSessionGain(-17,NAN)==0,"zero Spotify volume, mute and invalid session gain must suppress pre-volume peaks");
+        require(std::abs(audibleSessionGain(0,.1f)-audibleSessionGain(-20,1))<.000001f,"equal player and endpoint attenuation must produce equal output amplitude");
+        require(waveformLevel(0)==0&&waveformLevel(.00001f)==0&&waveformLevel(NAN)==0&&waveformLevel(1)==1,"silence, invalid readings and full-scale audio must have stable display endpoints");
+        float previousDbLevel=0;for(int db=-96;db<=0;db++){
+            float level=waveformLevel(gainFromDecibels(static_cast<float>(db)));
+            require(std::isfinite(level)&&level>=previousDbLevel&&level<=1,"the output dB display curve must be finite and monotonic");previousDbLevel=level;
+        }
+        PeakHistory history;for(int i=0;i<32;i++)history.append(.25f,true);
+        auto peaks=history.display();for(float peak:peaks)require(peak>.83f&&peak<.88f,"full-volume music must produce a strong waveform with room for louder transients");
+        float lowLevel=waveformLevel(.017334f*gainFromDecibels(-19.279f));
+        require(lowLevel>.28f&&lowLevel<.35f,"quiet post-volume music must move the central stroke visibly without looking loud");
+        VisualizerMotion quietBeat;AudioPeaks quietBeatPeaks{};quietBeatPeaks.fill(lowLevel);
+        quietBeat.step(quietBeatPeaks,1./60,true,L"spotify");quietBeat.step(quietBeatPeaks,1./60,true,L"spotify");
+        require(quietBeat.level(2)>lowLevel*.8f&&quietBeat.level(2)<lowLevel,"quiet beats must rise promptly within two display frames without snapping");
+        float beatTop=quietBeat.level(2);quietBeatPeaks.fill(0);quietBeat.step(quietBeatPeaks,1./60,true,L"spotify");
+        require(quietBeat.level(2)>beatTop*.5f&&quietBeat.level(2)<beatTop*.7f,"quiet beats must release smoothly while retaining distinct movement");
         VisualizerMotion visual;for(int i=0;i<120;i++)visual.step(peaks,1.0/120,true,L"spotify");
-        float contour[]={.50f,.78f,1,.94f,.72f,.44f};for(size_t i=0;i<6;i++)require(std::abs(visual.level(i)-.328f*1.35f*contour[i])<.000002f,"all six waveform strokes must match the original contour");
+        float contour[]={.50f,.78f,1,.94f,.72f,.44f};for(size_t i=0;i<6;i++)require(std::abs(visual.level(i)-peaks[i+3]*contour[i])<.000002f,"all six waveform strokes must retain the original contour");
+        float musicLevel=visual.level(2);history.reset();for(int i=0;i<300;i++)history.append(.025f,true);
+        auto quietPeaks=history.display();require(quietPeaks[8]<peaks[8]-.2f,"Spotify attenuation must remain visible after adaptive history would have settled");
+        visual.step(quietPeaks,1./120,true,L"spotify");require(visual.level(2)<musicLevel&&visual.level(2)>quietPeaks[8],"lowering Spotify volume must smoothly shrink the existing waveform");
+        for(int i=0;i<120;i++)visual.step(quietPeaks,1./120,true,L"spotify");
+        require(std::abs(visual.level(2)-quietPeaks[8])<.000002f,"a quiet song must never normalize itself back to the full-volume level");
+        PeakHistory deviceQuiet;for(int i=0;i<300;i++)deviceQuiet.append(.25f*gainFromDecibels(-20),true);
+        require(std::abs(deviceQuiet.display()[8]-quietPeaks[8])<.000002f,"equal attenuation inside Spotify or at the output device must give equal heights without double attenuation");
+        PeakHistory listening;for(int i=0;i<32;i++)listening.append(.4f*gainFromDecibels(-17.2615f),true);
+        require(listening.display()[8]>.65f&&waveformLayout(0).height(listening.display()[8])>18,"normal listening attenuation must keep the bars clearly visible");
+        history.reset();for(int i=0;i<120;i++)visual.step(history.display(),1./120,true,L"spotify");
+        require(visual.level(2)==0,"muting must settle the waveform even if the source still produces music");
+        visual.step(peaks,1./120,true,L"spotify");require(visual.level(2)>0&&visual.level(2)<peaks[8],"unmuting must resume without snapping to full height");
+        auto wavePrevious=waveformLayout(0);
+        for(int i=1;i<=240;i++){
+            auto wave=waveformLayout(i/240.f);
+            require(wave.stroke>=wavePrevious.stroke&&wave.width()>=wavePrevious.width(),"waveform strokes and spacing must never shrink while expanding");
+            for(float level:{0.f,.25f,.5f,1.f})require(wave.height(level)>=wavePrevious.height(level),"every waveform height must remain monotonic through expansion");
+            require(wave.pitch>wave.stroke&&wave.restHeight>=wave.stroke,"rounded bars must keep clear gaps and valid round caps");
+            wavePrevious=wave;
+        }
         visual.step(peaks,0,false,L"new player");for(size_t i=0;i<6;i++)require(visual.level(i)==0,"changing the selected player must clear the preceding waveform");
         for(int i=0;i<120;i++)visual.step(peaks,1.0/120,true,L"spotify");for(int i=0;i<60;i++)visual.step(peaks,1.0/120,false,L"spotify");
         for(size_t i=0;i<6;i++)require(visual.level(i)<.0001f,"paused and stale samples must settle every stroke to rest");
-        history.reset();history.append(.001f,true);for(float peak:history.display())require(peak==0,"silence must not invent waveform activity");
+        history.reset();history.append(.00001f,true);for(float peak:history.display())require(peak==0,"silence must not invent waveform activity");
         history.append(NAN,true);for(float peak:history.display())require(std::isfinite(peak),"invalid meter readings must stay finite");
         Marquee marquee;marquee.restart(0);double previousScroll=0;
         for(int i=0;i<600;i++){double scrollValue=marquee.update(i/120.0,1.0/120,240,false);require(std::abs(scrollValue-previousScroll)<1,"long titles must scroll continuously");previousScroll=scrollValue;}

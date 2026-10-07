@@ -127,7 +127,7 @@ void MediaService::run() {
             std::unique_lock lock(mutex);wake.wait_for(lock,std::chrono::seconds(1),[&]{return stopping;});
         }catch(...) {state.error=L"Waiting for the media player";state.peak=0;}
         audio.select(state.source,state.available&&state.playing&&clockSeconds()-state.received<2);
-        auto levels=audio.read();state.peaks=levels.peaks;state.audioReceived=levels.received;state.peak=levels.peak;state.audioAvailable=levels.available;state.audioPid=levels.process;state.audioSamples=levels.samples;state.audioMatches=levels.matches;state.audioSource=levels.source;
+        auto levels=audio.read();state.peaks=levels.peaks;state.audioGain=levels.outputGain;state.audioRawPeak=levels.rawPeak;state.audioSessionVolume=levels.sessionVolume;state.audioEndpointDb=levels.endpointDb;state.audioCapturedPeak=levels.capturedPeak;state.audioOutputMeasured=levels.outputMeasured;state.audioLoopbackError=levels.loopbackError;state.audioReceived=levels.received;state.peak=levels.peak;state.audioAvailable=levels.available;state.audioPid=levels.process;state.audioSamples=levels.samples;state.audioMatches=levels.matches;state.audioSource=levels.source;
         ++state.revision;
         {std::lock_guard lock(mutex);latest=std::make_shared<Snapshot>(state);}
         PostMessageW(window,MediaMessage,0,0);

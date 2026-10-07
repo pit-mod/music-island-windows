@@ -23,6 +23,14 @@ cl /nologo /std:c++20 /EHsc /MT /O2 /W4 /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /
 if errorlevel 1 exit /b 1
 "build\MotionTests.exe"
 if errorlevel 1 exit /b 1
+cl /nologo /std:c++20 /EHsc /MT /O2 /W4 /utf-8 /Fo"build\SpectrumTests.obj" tests\SpectrumTests.cpp /Fe"build\SpectrumTests.exe"
+if errorlevel 1 exit /b 1
+"build\SpectrumTests.exe"
+if errorlevel 1 exit /b 1
+cl /nologo /std:c++20 /EHsc /MT /O2 /W4 /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /DWIN32_LEAN_AND_MEAN /Fo"build\SettingsTests.obj" tests\SettingsTests.cpp /Fe"build\SettingsTests.exe" /link shell32.lib ole32.lib uuid.lib
+if errorlevel 1 exit /b 1
+"build\SettingsTests.exe"
+if errorlevel 1 exit /b 1
 cl /nologo /std:c++20 /EHsc /MT /O2 /W4 /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /DWIN32_LEAN_AND_MEAN /Fo"build\KeyboardTests.obj" tests\KeyboardTests.cpp build\Keyboard.obj /Fe"build\KeyboardTests.exe" /link user32.lib ole32.lib oleaut32.lib uiautomationcore.lib uuid.lib
 if errorlevel 1 exit /b 1
 "build\KeyboardTests.exe"

@@ -11,6 +11,8 @@ A small music island at the top of your screen, built in C++ for Windows. It sho
 
 The island hides when no music is available. Works with Spotify and other players that support Windows media controls.
 
-Requires Windows 10 1809+ or Windows 11, 64-bit.
+Settings save automatically in `%LOCALAPPDATA%\MusicIslandWindows\settings.ini` and carry over when you update the app.
+
+Requires Windows 10 1809+ or Windows 11, 64-bit. Windows 11 captures bass, mids and treble after the player's volume control; Windows 10 uses a basic peak meter.
 
 To build, install Visual Studio's Desktop development with C++ workload and a Windows SDK, then run `./build.ps1` in PowerShell.

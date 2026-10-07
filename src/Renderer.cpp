@@ -152,17 +152,17 @@ void Renderer::render(Motion& m,const Snapshot& s,double now,double elapsed,bool
     float expansion=static_cast<float>(clamp01((h-36)/156));float reveal=static_cast<float>(smooth((expansion-.35)/.65));
     float size=static_cast<float>(m.cover.value),cx=left+static_cast<float>(m.coverX.value),cy=top+static_cast<float>(m.coverY.value);
     float breathing=static_cast<float>(mix(1,mix(.92,1,clamp01(m.playGlyph.value)),expansion));auto savedMatrix=matrix();context->SetTransform(D2D1::Matrix3x2F::Scale(breathing,breathing,D2D1::Point2F(cx+size/2,cy+size/2))*savedMatrix);cover(D2D1::RectF(cx,cy,cx+size,cy+size),size*.20f,now,m.reduced);context->SetTransform(savedMatrix);
-    float waveExpansion=static_cast<float>(smooth(expansion)),unit=w/static_cast<float>(mix(82,162,expansion));
-    float titleX=left+static_cast<float>(mix(40,102,expansion)),titleY=top+static_cast<float>(mix(9,28,expansion)),fontSize=static_cast<float>(mix(12,19,expansion)),available=w-(titleX-left)-(16+15*expansion)*unit;
+    auto wave=waveformLayout(expansion);
+    float mx=left+w-wave.rightInset-wave.width(),my=top+wave.centerY;
+    float titleX=left+static_cast<float>(mix(40,102,expansion)),titleY=top+static_cast<float>(mix(9,28,expansion)),fontSize=static_cast<float>(mix(12,19,expansion)),available=std::max(0.f,mx-12-titleX);
     float progress=static_cast<float>(clamp01((now-titleBegan)/(m.reduced?.16:.32)));
     float outgoing=static_cast<float>(1-smooth(progress*2)),incoming=static_cast<float>(smooth((progress-.5)*2));
     if(!oldTitle.empty()&&outgoing>0)text(oldTitle,titleX,titleY,fontSize,available,outgoing,true,oldTitleOffset*fontSize/12);
     text(title,titleX,titleY,fontSize,available,incoming,true,0,&titleScroll);
     if(reveal>.001f){if(!oldArtist.empty()&&outgoing>0)text(oldArtist,titleX,titleY+28,13.5f,available,.48f*outgoing*reveal,false,oldArtistOffset*13.5/12);text(artist,titleX,titleY+28,13.5f,available,.55f*incoming*reveal,false,0,&artistScroll);}
-    float mx=left+w-(13+12*waveExpansion)*unit,my=top+(8+9.5f*waveExpansion)*unit;
     double paletteMix=smooth((now-artBegan)/(m.reduced?.16:CoverFade));
     for(size_t i=0;i<VisualizerMotion::Bars;i++){
-        float bar=(1.15f+meter.level(i)*(9.5f+2.5f*waveExpansion))*unit,stroke=(.95f+.10f*waveExpansion)*unit,step=(1.72f+.25f*waveExpansion)*unit,x=mx+static_cast<float>(i)*step;
+        float bar=wave.height(meter.level(i)),stroke=wave.stroke,x=mx+static_cast<float>(i)*wave.pitch;
         auto asColor=[](uint32_t c){return D2D1::ColorF(((c>>16)&255)/255.f,((c>>8)&255)/255.f,(c&255)/255.f);};
         auto leftColor=ArtworkAccent::blend(previousColors[i*2],colors[i*2],paletteMix),rightColor=ArtworkAccent::blend(previousColors[i*2+1],colors[i*2+1],paletteMix);
         if(!waveBrushes[i]||waveLeft[i]!=leftColor||waveRight[i]!=rightColor){D2D1_GRADIENT_STOP stops[]={{0,asColor(leftColor)},{1,asColor(rightColor)}};ComPtr<ID2D1GradientStopCollection> gradient;check(context->CreateGradientStopCollection(stops,2,D2D1_GAMMA_1_0,D2D1_EXTEND_MODE_CLAMP,&gradient));waveBrushes[i].Reset();check(context->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties(D2D1::Point2F(x,my),D2D1::Point2F(x+stroke,my)),gradient.Get(),&waveBrushes[i]));waveLeft[i]=leftColor;waveRight[i]=rightColor;}

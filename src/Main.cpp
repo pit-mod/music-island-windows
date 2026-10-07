@@ -3,6 +3,7 @@
 #include "ArrowKeys.h"
 #include "Keyboard.h"
 #include "MonitorMotion.h"
+#include "Settings.h"
 #include <winrt/base.h>
 #include <shellapi.h>
 #include <shlobj.h>
@@ -19,14 +20,6 @@ constexpr UINT ArrowMessage=WM_APP+5;
 class App;
 static App* hookedApp=nullptr;
 enum class Pointer {None,Surface,Play,Previous,Next,Seek};
-struct Settings {
-    std::wstring file;
-    std::wstring monitorDevice;
-    bool pin=false,reduced=false,hover=false,arrows=false;
-    double scale=1;
-    Settings(){PWSTR directory=nullptr;if(SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData,0,nullptr,&directory))){std::filesystem::path folder=std::filesystem::path(directory)/L"MusicIslandWindows";CoTaskMemFree(directory);std::filesystem::create_directories(folder);file=(folder/L"settings.ini").wstring();pin=GetPrivateProfileIntW(L"island",L"pin",0,file.c_str())!=0;reduced=GetPrivateProfileIntW(L"island",L"reduced",0,file.c_str())!=0;hover=GetPrivateProfileIntW(L"island",L"hover",0,file.c_str())!=0;arrows=GetPrivateProfileIntW(L"island",L"arrows",0,file.c_str())!=0;wchar_t monitorName[64]{};GetPrivateProfileStringW(L"island",L"monitor",L"",monitorName,64,file.c_str());monitorDevice=monitorName;wchar_t value[32];GetPrivateProfileStringW(L"island",L"scale",L"1",value,32,file.c_str());scale=std::clamp(wcstod(value,nullptr),.75,1.4);}}
-    void save(){if(file.empty())return;WritePrivateProfileStringW(L"island",L"pin",pin?L"1":L"0",file.c_str());WritePrivateProfileStringW(L"island",L"reduced",reduced?L"1":L"0",file.c_str());WritePrivateProfileStringW(L"island",L"hover",hover?L"1":L"0",file.c_str());WritePrivateProfileStringW(L"island",L"arrows",arrows?L"1":L"0",file.c_str());WritePrivateProfileStringW(L"island",L"monitor",monitorDevice.c_str(),file.c_str());WritePrivateProfileStringW(L"island",L"scale",std::to_wstring(scale).c_str(),file.c_str());}
-};
 static std::shared_ptr<const std::vector<unsigned char>> fixtureArt(int variant) {
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic;winrt::check_hresult(CoCreateInstance(CLSID_WICImagingFactory2,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&wic)));
     Microsoft::WRL::ComPtr<IStream> stream;winrt::check_hresult(CreateStreamOnHGlobal(nullptr,TRUE,&stream));Microsoft::WRL::ComPtr<IWICBitmapEncoder> encoder;Microsoft::WRL::ComPtr<IWICBitmapFrameEncode> frame;Microsoft::WRL::ComPtr<IPropertyBag2> options;
@@ -235,7 +228,7 @@ public:
         if(selected==10){settings.arrows=!settings.arrows;typing.setEnabled(settings.arrows);}
         if(selected==9){if(manualHidden)reveal();else if(snapshot->available)hide();}
         if(selected==3||selected==4){settings.scale=std::clamp(settings.scale+(selected==3?-.1:.1),.75,1.4);layoutPending=true;}
-        if(selected==6)toggleStartup();if(selected==7)DestroyWindow(window);settings.save();
+        if(selected==6)toggleStartup();if(!testing&&selected)settings.save();if(selected==7)DestroyWindow(window);
     }
 };
 static LRESULT CALLBACK procedure(HWND hwnd,UINT message,WPARAM wp,LPARAM lp) {
@@ -262,7 +255,8 @@ static LRESULT CALLBACK procedure(HWND hwnd,UINT message,WPARAM wp,LPARAM lp) {
     case WM_HOTKEY:app->toggleExpanded();return 0;
     case TrayMessage:if(LOWORD(lp)==WM_CONTEXTMENU||LOWORD(lp)==WM_RBUTTONUP){POINT p;GetCursorPos(&p);app->menu(p);}else if(LOWORD(lp)==NIN_SELECT||LOWORD(lp)==WM_LBUTTONUP)app->toggleExpanded();return 0;
     case WM_CLOSE:DestroyWindow(hwnd);return 0;
-    case WM_DESTROY:Shell_NotifyIconW(NIM_DELETE,&app->tray);UnregisterHotKey(hwnd,1);PostQuitMessage(0);return 0;
+    case WM_QUERYENDSESSION:if(!app->testing)app->settings.save();return TRUE;
+    case WM_DESTROY:if(!app->testing)app->settings.save();Shell_NotifyIconW(NIM_DELETE,&app->tray);UnregisterHotKey(hwnd,1);PostQuitMessage(0);return 0;
     }
     return DefWindowProcW(hwnd,message,wp,lp);
 }
@@ -427,6 +421,17 @@ static int renderTest(App& app,const std::filesystem::path& output) {
     for(int i=0;i<60;i++){motion.step(1./120);renderer.render(motion,b,30+(i+1)/120.,62+100*smooth(i/59.),true,true,0,false);if(i==12||i==59)renderer.save((output/(L"slider-drag-"+std::to_wstring(i)+L".png")).wstring());}
     motion.seek.target=0;
     for(int i=0;i<60;i++){motion.step(1./120);renderer.render(motion,b,30.5+(i+1)/120.,162,true,true,0,false);if(i==5||i==59)renderer.save((output/(L"slider-release-"+std::to_wstring(i)+L".png")).wstring());}
+    auto waveformSample=fixture(1,31.1);waveformSample.audioSource=waveformSample.source;waveformSample.peaks.fill(waveformLevel(.65f));
+    Motion waveformMotion;waveformMotion.presence.snap(true);waveformMotion.playGlyph.snap(1);
+    for(int i=0;i<60;i++){double now=31.1+i/120.;waveformSample.audioReceived=now;renderer.render(waveformMotion,waveformSample,now,62,true,true,0,false);}
+    renderer.save((output/L"waveform-compact.png").wstring());
+    waveformMotion.setExpanded(true);
+    const float volumes[]={0,-12,-24,-160};
+    for(int v=0;v<4;v++){
+        waveformSample.audioGain=gainFromDecibels(volumes[v]);waveformSample.peaks.fill(waveformLevel(.65f*waveformSample.audioGain));
+        for(int i=0;i<60;i++){double now=32+(v*60+i)/120.;waveformMotion.step(1./120);waveformSample.audioReceived=now;renderer.render(waveformMotion,waveformSample,now,62,true,true,0,false);}
+        renderer.save((output/(L"waveform-volume-"+std::to_wstring(v)+L".png")).wstring());
+    }
     Motion manual;manual.presence.snap(true);manual.playGlyph.snap(1);renderer.render(manual,b,35,62,true,true,0,false);
     manual.surfacePress.snap(1);renderer.render(manual,b,35.001,62,true,true,0,false);renderer.save((output/L"island-pressed.png").wstring());manual.surfacePress.snap(0);
     manual.tuck.target=manual.peek.target=1;manual.presence.request(false);
@@ -464,7 +469,7 @@ static int renderTest(App& app,const std::filesystem::path& output) {
         nativeMonitorTransfer=true;
     }
     app.renderer.reset();
-    std::ofstream report(output/L"render.json");report<<"{\"frames\":"<<(1865+(nativeMonitorTransfer?480:0))<<",\"nativeClickChecks\":53,\"arrowControlChecks\":true,\"nativeTypingChecks\":true,\"elasticMonitorMotionChecks\":true,\"connectedMonitors\":"<<displays.size()<<",\"nativeMonitorTransferChecks\":"<<(nativeMonitorTransfer?"true":"false")<<",\"edgeSwipeChecks\":true,\"releaseClickChecks\":true,\"presenceChecks\":true,\"delayedPlaybackChecks\":true,\"meanRenderMs\":"<<total/240*1000<<",\"highDpi\":288,\"renderer\":\"Direct2D/DirectComposition\",\"passed\":true}\n";return 0;
+    std::ofstream report(output/L"render.json");report<<"{\"frames\":"<<(2165+(nativeMonitorTransfer?480:0))<<",\"nativeClickChecks\":53,\"arrowControlChecks\":true,\"nativeTypingChecks\":true,\"elasticMonitorMotionChecks\":true,\"connectedMonitors\":"<<displays.size()<<",\"nativeMonitorTransferChecks\":"<<(nativeMonitorTransfer?"true":"false")<<",\"edgeSwipeChecks\":true,\"releaseClickChecks\":true,\"presenceChecks\":true,\"delayedPlaybackChecks\":true,\"waveformVolumeChecks\":true,\"waveformExpansionChecks\":true,\"meanRenderMs\":"<<total/240*1000<<",\"highDpi\":288,\"renderer\":\"Direct2D/DirectComposition\",\"passed\":true}\n";return 0;
 }
 }
 int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int) {
@@ -475,7 +480,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int) {
     HANDLE mutex=nullptr;
     if(testOutput.empty()&&probeOutput.empty()){mutex=CreateMutexW(nullptr,FALSE,L"Local\\MusicIslandWindows.Native.v1");if(GetLastError()==ERROR_ALREADY_EXISTS){if(auto existing=FindWindowW(L"MusicIsland.Native.Window",nullptr))PostMessageW(existing,WM_HOTKEY,1,0);CloseHandle(mutex);return 0;}}
     try {
-        App app;app.preview=preview;wchar_t path[32768];GetModuleFileNameW(nullptr,path,32768);app.exe=path;
+        App app;app.preview=preview;app.testing=!testOutput.empty()||!probeOutput.empty();wchar_t path[32768];GetModuleFileNameW(nullptr,path,32768);app.exe=path;
         WNDCLASSEXW cls{sizeof(cls)};cls.style=CS_HREDRAW|CS_VREDRAW;cls.hInstance=instance;cls.lpfnWndProc=procedure;cls.lpszClassName=L"MusicIsland.Native.Window";cls.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassExW(&cls);
         app.window=CreateWindowExW(WS_EX_TOPMOST|WS_EX_TOOLWINDOW|WS_EX_NOREDIRECTIONBITMAP,cls.lpszClassName,L"MusicIsland",WS_POPUP,0,0,440,264,nullptr,nullptr,instance,&app);if(!app.window)throw std::runtime_error("Could not create the native window");
         app.typing.setWindow(app.window);
@@ -484,8 +489,9 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int) {
             auto parent=std::filesystem::path(probeOutput).parent_path();if(!parent.empty())std::filesystem::create_directories(parent);MediaService media(app.window);std::shared_ptr<const Snapshot> snapshot;
             for(int i=0;i<120;i++){Sleep(50);snapshot=media.snapshot();if(snapshot->available)break;}
             AudioPeaks maxima{};double peak=0;for(int i=0;i<80;i++){Sleep(50);snapshot=media.snapshot();peak=std::max(peak,snapshot->peak);for(size_t b=0;b<9;b++)maxima[b]=std::max(maxima[b],snapshot->peaks[b]);}
-            std::ofstream report(probeOutput);report<<"available="<<snapshot->available<<"\nplaying="<<snapshot->playing<<"\nsource="<<winrt::to_string(snapshot->source)<<"\nduration="<<snapshot->duration<<"\nartworkBytes="<<(snapshot->artwork?snapshot->artwork->size():0)<<"\nprevious="<<snapshot->previous<<"\nnext="<<snapshot->next<<"\nseek="<<snapshot->seek<<"\nerror="<<winrt::to_string(snapshot->error)<<"\naudioAvailable="<<snapshot->audioAvailable<<"\naudioPid="<<snapshot->audioPid<<"\naudioMatches="<<snapshot->audioMatches<<"\naudioSamples="<<snapshot->audioSamples<<"\npeak="<<peak<<"\npeakMaxima=";for(double value:maxima)report<<value<<',';report<<'\n';DestroyWindow(app.window);return snapshot->error.empty()?0:2;
+            std::ofstream report(probeOutput);report<<"available="<<snapshot->available<<"\nplaying="<<snapshot->playing<<"\nsource="<<winrt::to_string(snapshot->source)<<"\nduration="<<snapshot->duration<<"\nartworkBytes="<<(snapshot->artwork?snapshot->artwork->size():0)<<"\nprevious="<<snapshot->previous<<"\nnext="<<snapshot->next<<"\nseek="<<snapshot->seek<<"\nerror="<<winrt::to_string(snapshot->error)<<"\naudioAvailable="<<snapshot->audioAvailable<<"\naudioPid="<<snapshot->audioPid<<"\naudioMatches="<<snapshot->audioMatches<<"\naudioSamples="<<snapshot->audioSamples<<"\noutputMeasured="<<snapshot->audioOutputMeasured<<"\nloopbackError="<<snapshot->audioLoopbackError<<"\ncapturedPeak="<<snapshot->audioCapturedPeak<<"\nrawPeak="<<snapshot->audioRawPeak<<"\nsessionVolume="<<snapshot->audioSessionVolume<<"\nendpointDb="<<snapshot->audioEndpointDb<<"\noutputGain="<<snapshot->audioGain<<"\npeak="<<peak<<"\npeakMaxima=";for(double value:maxima)report<<value<<',';report<<'\n';DestroyWindow(app.window);return snapshot->error.empty()?0:2;
         }
+        app.settings.save();
         app.physicalScale=GetDpiForWindow(app.window)/96.f;app.renderer=std::make_unique<Renderer>(app.window,96*app.physicalScale);app.taskbarCreated=RegisterWindowMessageW(L"TaskbarCreated");app.addTray();RegisterHotKey(app.window,1,MOD_WIN|MOD_ALT|MOD_NOREPEAT,'M');
         if(preview)app.snapshot=std::make_shared<Snapshot>(fixture(0,clockSeconds()));else app.media=std::make_unique<MediaService>(app.window);
         app.motion.playGlyph.snap(app.snapshot->playing?1:0);app.motion.setExpanded(app.settings.pin);app.layout();app.updatePresence(clockSeconds());

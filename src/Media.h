@@ -20,6 +20,10 @@ struct Snapshot {
     bool available=false,playing=false,play=false,pause=false,previous=false,next=false,seek=false;
     double position=0,duration=0,rate=1,received=0,peak=0;
     AudioPeaks peaks{};
+    float audioGain=1,audioRawPeak=0,audioSessionVolume=0,audioEndpointDb=0;
+    float audioCapturedPeak=0;
+    bool audioOutputMeasured=false;
+    HRESULT audioLoopbackError=S_OK;
     double audioReceived=0;
     bool audioAvailable=false;
     DWORD audioPid=0;

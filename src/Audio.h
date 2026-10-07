@@ -10,7 +10,9 @@ namespace island {
 struct AudioFrame {
     AudioPeaks peaks{};
     double received=0,peak=0;
-    bool available=false;
+    float outputGain=0,rawPeak=0,sessionVolume=0,endpointDb=0,capturedPeak=0;
+    bool available=false,outputMeasured=false,endpointMuted=false;
+    HRESULT loopbackError=S_OK;
     DWORD process=0;
     unsigned matches=0;
     unsigned long long samples=0;
